@@ -2,7 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\InventarioController;
-use App\Http\Controllers\AuthController; 
+use App\Http\Controllers\AuthController;
 
 
 Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login');
@@ -22,4 +22,8 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/inventario/producto', [InventarioController::class, 'storeProducto'])->name('inventario.producto.store');
     Route::post('/inventario/entrada', [InventarioController::class, 'storeEntrada'])->name('inventario.entrada.store');
 
+
+    Route::get('/ventas', function() { return view('ventas.index'); })->name('ventas.index');
+    Route::get('/clientes', function() { return view('clientes.index'); })->name('clientes.index');
+    Route::get('/reportes', function() { return view('reportes.index'); })->name('reportes.index');
 });
