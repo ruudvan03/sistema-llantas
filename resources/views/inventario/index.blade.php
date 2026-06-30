@@ -23,17 +23,69 @@
             <h2 class="text-2xl font-bold text-gray-900">Inventario</h2>
             <p class="text-sm text-gray-500 mt-1">Gestión avanzada del catálogo general de mercancía.</p>
         </div>
-        <div class="flex flex-wrap gap-2 w-full md:w-auto">
-            <a href="{{ route('inventario.importar') }}" class="inline-flex items-center justify-center px-4 py-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-sm font-semibold hover:bg-emerald-100 transition">Importar Excel</a>
-            <button onclick="openModal('modal-producto')" class="inline-flex items-center justify-center px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition shadow-sm">+ Nuevo producto</button>
-            <button onclick="openModal('modal-entrada')" class="inline-flex items-center justify-center px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition shadow-sm">Registrar entrada</button>
+
+        <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+            <a href="{{ route('inventario.importar') }}" class="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition shadow-sm">
+                <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                Importar
+            </a>
+
+            <button onclick="openModal('modal-producto')" class="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition shadow-sm">
+                <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Nuevo producto
+            </button>
+
+            <button onclick="openModal('modal-entrada')" class="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition shadow-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Registrar entrada
+            </button>
+
+            <span class="hidden md:block w-px h-7 bg-gray-200 mx-1"></span>
+
+            <div class="relative" x-data="{ abierto: false }">
+                <button @click="abierto = !abierto" @click.away="abierto = false"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-[#0F0F0F] text-white rounded-lg text-sm font-semibold hover:bg-black transition shadow-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    Exportar
+                    <svg class="w-3.5 h-3.5 transition-transform" :class="abierto ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+
+                <div x-show="abierto" x-cloak x-transition
+                     class="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50">
+                    <a href="{{ route('inventario.exportar.excel', request()->query()) }}"
+                       class="flex items-center gap-3 px-4 py-3 text-sm text-gray-700 hover:bg-emerald-50 transition">
+                        <span class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        </span>
+                        <div>
+                            <p class="font-semibold text-gray-800">Excel</p>
+                            <p class="text-[11px] text-gray-400">Hoja de cálculo</p>
+                        </div>
+                    </a>
+                    <div class="h-px bg-gray-100"></div>
+                    <a href="{{ route('inventario.exportar.pdf', request()->query()) }}"
+                       class="flex items-center gap-3 px-4 py-3 text-sm text-gray-700 hover:bg-red-50 transition">
+                        <span class="w-8 h-8 rounded-lg bg-red-100 text-[#D32030] flex items-center justify-center shrink-0">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                        </span>
+                        <div>
+                            <p class="font-semibold text-gray-800">PDF</p>
+                            <p class="text-[11px] text-gray-400">Documento imprimible</p>
+                        </div>
+                    </a>
+                </div>
+            </div>
         </div>
     </div>
 
     <form id="filter-form" method="GET" action="{{ route('inventario.index') }}" class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
-        
+
+        @if(request('solo_nuevos') == '1')
+            <input type="hidden" name="solo_nuevos" value="1">
+        @endif
+
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4 items-end">
-            
+
             <div class="lg:col-span-3">
                 <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Búsqueda Inteligente</label>
                 <input type="text" name="q" value="{{ request('q') }}" placeholder="Medida, marca..." class="bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block w-full p-2.5 outline-none">
@@ -98,10 +150,22 @@
                         <div class="px-3 py-1 rounded-full text-xs font-semibold border transition-all peer-checked:bg-indigo-600 peer-checked:border-indigo-600 peer-checked:text-white bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100">{{ $tipo }}</div>
                     </label>
                 @endforeach
+
+                {{-- Chip especial: Llegó hoy --}}
+                @php $totalNuevos = count($productosNuevosHoy ?? []); @endphp
+                <a href="{{ request('solo_nuevos') == '1' ? route('inventario.index') : route('inventario.index', ['solo_nuevos' => '1']) }}"
+                   class="px-3 py-1 rounded-full text-xs font-semibold border transition-all inline-flex items-center gap-1
+                   {{ request('solo_nuevos') == '1' ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100' }}">
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a1 1 0 011 1v1.323l3.954 1.582 1.599-.8a1 1 0 01.894 1.79l-1.233.616 1.738 5.42a1 1 0 01-.285 1.05A3.989 3.989 0 0115 16a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.715-5.349L11 7.323V16h2a1 1 0 110 2H7a1 1 0 110-2h2V7.323L6.237 8.582l1.715 5.349a1 1 0 01-.285 1.05A3.989 3.989 0 015 16a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.738-5.42-1.233-.616a1 1 0 01.894-1.79l1.599.8L9 4.323V3a1 1 0 011-1z"/></svg>
+                    Llegó hoy
+                    @if($totalNuevos > 0)
+                        <span class="px-1.5 py-0.5 rounded-full text-[9px] font-bold {{ request('solo_nuevos') == '1' ? 'bg-white text-emerald-700' : 'bg-emerald-600 text-white' }}">{{ $totalNuevos }}</span>
+                    @endif
+                </a>
             </div>
         </div>
-        
-        @if(request()->hasAny(['sucursal_id', 'tipo', 'q', 'stock_status', 'marca_filtro', 'ordenar_precio']))
+
+        @if(request()->hasAny(['sucursal_id', 'tipo', 'q', 'stock_status', 'marca_filtro', 'ordenar_precio', 'solo_nuevos']))
             <div class="flex justify-between items-center pt-2 border-t border-gray-50">
                 <button type="submit" class="px-5 py-1.5 bg-blue-600 text-white font-medium rounded-lg text-xs hover:bg-blue-700 transition">Aplicar Filtros Manuales</button>
                 <a href="{{ route('inventario.index') }}" class="inline-flex items-center text-xs font-semibold text-red-500 hover:text-red-700 transition">
@@ -114,8 +178,8 @@
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
         <div class="overflow-x-auto w-full">
             @php
-                // Detectamos si el usuario seleccionó EXCLUSIVAMENTE el filtro de "Servicio"
                 $viendoSoloServicios = request('tipo') === 'Servicio';
+                $nuevosHoy = $productosNuevosHoy ?? [];
             @endphp
 
             <table class="w-full text-left border-collapse">
@@ -142,8 +206,9 @@
                             $st = $producto->stock_cantidad ?? 0;
                             $min = $producto->stock_minimo ?? 5;
                             $esServicio = $producto->tipo === 'Servicio';
+                            $esNuevo = in_array($producto->id, $nuevosHoy);
                         @endphp
-                        <tr class="hover:bg-blue-50/40 transition-colors">
+                        <tr class="hover:bg-blue-50/40 transition-colors {{ $esNuevo ? 'bg-emerald-50/30' : '' }}">
                             @if($viendoSoloServicios)
                                 <td class="p-4">
                                     <p class="font-bold text-gray-900 text-base">{{ $producto->descripcion }}</p>
@@ -156,9 +221,17 @@
                                 </td>
                             @else
                                 <td class="p-4">
-                                    <span class="inline-block px-2 py-0.5 {{ $esServicio ? 'bg-purple-50 text-purple-700' : 'bg-blue-50 text-blue-700' }} text-[10px] rounded-full font-bold tracking-wide mb-1">
-                                        {{ $producto->tipo }}
-                                    </span>
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <span class="inline-block px-2 py-0.5 {{ $esServicio ? 'bg-purple-50 text-purple-700' : 'bg-blue-50 text-blue-700' }} text-[10px] rounded-full font-bold tracking-wide">
+                                            {{ $producto->tipo }}
+                                        </span>
+                                        @if($esNuevo)
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500 text-white text-[10px] rounded-full font-bold tracking-wide animate-pulse">
+                                                <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a1 1 0 011 1v1.323l3.954 1.582 1.599-.8a1 1 0 01.894 1.79l-1.233.616 1.738 5.42a1 1 0 01-.285 1.05A3.989 3.989 0 0115 16a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.715-5.349L11 7.323V16h2a1 1 0 110 2H7a1 1 0 110-2h2V7.323L6.237 8.582l1.715 5.349a1 1 0 01-.285 1.05A3.989 3.989 0 015 16a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.738-5.42-1.233-.616a1 1 0 01.894-1.79l1.599.8L9 4.323V3a1 1 0 011-1z"/></svg>
+                                                NUEVO
+                                            </span>
+                                        @endif
+                                    </div>
                                     <p class="font-bold text-gray-900 leading-tight">
                                         {{ $esServicio ? $producto->descripcion : $producto->marca }}
                                     </p>
@@ -196,7 +269,11 @@
                     @empty
                         <tr>
                             <td colspan="{{ $viendoSoloServicios ? 3 : 7 }}" class="p-12 text-center text-gray-400">
-                                Sin registros bajo esos filtros.
+                                @if(request('solo_nuevos') == '1')
+                                    No llegó mercancía nueva hoy.
+                                @else
+                                    Sin registros bajo esos filtros.
+                                @endif
                             </td>
                         </tr>
                     @endforelse
@@ -223,9 +300,9 @@
             <div>
                 <label class="block text-xs font-semibold text-gray-600 mb-1">Producto</label>
                 <select name="producto_id" class="w-full p-2 border border-gray-300 rounded-lg text-sm">
-                    @foreach($productos as $p) 
+                    @foreach($productos as $p)
                         @if($p->tipo !== 'Servicio')
-                            <option value="{{ $p->id }}">{{ $p->marca }} - {{ $p->medida }}</option> 
+                            <option value="{{ $p->id }}">{{ $p->marca }} - {{ $p->medida }}</option>
                         @endif
                     @endforeach
                 </select>

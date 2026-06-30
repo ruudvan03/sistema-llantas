@@ -6,7 +6,9 @@ use Illuminate\Http\Request;
 use App\Models\Producto;
 use App\Models\StockSucursal;
 use App\Models\Sucursal;
-use App\Models\CuentaPagar;
+use App\Models\MovimientoInventario;
+use App\Exports\InventarioExport;
+use Maatwebsite\Excel\Facades\Excel;
 use Rap2hpoutre\FastExcel\FastExcel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -15,55 +17,54 @@ class InventarioController extends Controller
 {
     public function index(Request $request)
     {
-        // 1. IDENTIFICACIÓN DE ROLES Y SUCURSALES
         $empleado = DB::table('usuarios')->where('id', Auth::id())->first();
         $esAdmin = ($empleado && $empleado->rol === 'admin') || Auth::id() === 1;
         $sucursalUsuario = $empleado ? $empleado->sucursal_id : 1;
-
-        // Si es Admin, puede filtrar por la sucursal que elija en la vista. Si es operador, se le fuerza SU sucursal.
         $sucursalFiltro = $esAdmin ? $request->input('sucursal_id') : $sucursalUsuario;
+
+        // IDs de productos que tuvieron una ENTRADA HOY (para la etiqueta "NUEVO" y el filtro)
+        $productosNuevosHoy = MovimientoInventario::where('tipo', 'entrada')
+            ->whereDate('fecha', today())
+            ->pluck('producto_id')
+            ->unique()
+            ->toArray();
 
         $query = Producto::query();
 
-        // 2. EXTRAER MARCAS DISPONIBLES DE LA BD (SIEMPRE DISPONIBLE PARA LA VISTA)
         $marcasDisponibles = Producto::select('marca')
-            ->whereNotNull('marca')
-            ->where('marca', '!=', '')
-            ->distinct()
-            ->orderBy('marca')
-            ->pluck('marca');
+            ->whereNotNull('marca')->where('marca', '!=', '')
+            ->distinct()->orderBy('marca')->pluck('marca');
 
-        // 3. CÁLCULO DE STOCK ESTRICTO POR SUCURSAL
         if ($sucursalFiltro) {
             $query->withSum(['stock as stock_cantidad' => function($q) use ($sucursalFiltro) {
                 $q->where('sucursal_id', $sucursalFiltro);
             }], 'cantidad');
-
             $query->addSelect(['stock_minimo' => StockSucursal::select('stock_minimo')
                 ->whereColumn('producto_id', 'productos.id')
-                ->where('sucursal_id', $sucursalFiltro)
-                ->limit(1)
+                ->where('sucursal_id', $sucursalFiltro)->limit(1)
             ]);
         } else {
-            // Solo un administrador que no ha seleccionado filtro llega aquí (Vista Global)
             $query->withSum('stock as stock_cantidad', 'cantidad');
             $query->addSelect(['stock_minimo' => StockSucursal::select('stock_minimo')
-                ->whereColumn('producto_id', 'productos.id')
-                ->limit(1)
+                ->whereColumn('producto_id', 'productos.id')->limit(1)
             ]);
         }
 
-        // 4. FILTRO POR CATEGORÍA / TIPO (CHIPS)
+        // FILTRO: solo los que llegaron hoy
+        if ($request->filled('solo_nuevos') && $request->solo_nuevos == '1') {
+            if (count($productosNuevosHoy) > 0) {
+                $query->whereIn('id', $productosNuevosHoy);
+            } else {
+                $query->whereRaw('1 = 0'); // Nada llegó hoy: lista vacía
+            }
+        }
+
         if ($request->filled('tipo') && $request->tipo !== 'Todos') {
             $query->where('tipo', $request->tipo);
         }
-
-        // 5. FILTRO POR MARCA SELECTORA
         if ($request->filled('marca_filtro') && $request->marca_filtro !== 'Todas') {
             $query->where('marca', $request->marca_filtro);
         }
-
-        // 6. BARRA DE BÚSQUEDA INTELIGENTE GENERAL (Q)
         if ($request->filled('q')) {
             $query->where(function($q) use ($request) {
                 $q->where('marca', 'like', '%' . $request->q . '%')
@@ -71,8 +72,6 @@ class InventarioController extends Controller
                   ->orWhere('descripcion', 'like', '%' . $request->q . '%');
             });
         }
-
-        // 7. FILTRO POR ESTADO/ALERTA DE STOCK
         if ($request->filled('stock_status')) {
             switch ($request->stock_status) {
                 case 'sin_stock':
@@ -86,8 +85,6 @@ class InventarioController extends Controller
                     break;
             }
         }
-
-        // 8. ORDENAMIENTO AVANZADO POR PRECIOS Y COSTOS (MAYOR / MENOR)
         if ($request->filled('ordenar_precio')) {
             switch ($request->ordenar_precio) {
                 case 'costo_mayor': $query->orderBy('costo', 'desc'); break;
@@ -96,37 +93,30 @@ class InventarioController extends Controller
                 case 'publico_menor': $query->orderBy('precio_publico', 'asc'); break;
                 case 'mayoreo_mayor': $query->orderBy('precio_mayoreo', 'desc'); break;
                 case 'mayoreo_menor': $query->orderBy('precio_mayoreo', 'asc'); break;
-                default:
-                    $query->orderBy('marca')->orderBy('medida');
-                    break;
+                default: $query->orderBy('marca')->orderBy('medida'); break;
             }
         } else {
             $query->orderBy('marca')->orderBy('medida');
         }
 
-        // Paginación limpia manteniendo los parámetros de las URLs
         $productos = $query->paginate(10)->withQueryString();
-        
-        // El administrador ve todas las sucursales en su filtro, el operador solo ve la suya
         $sucursales = $esAdmin ? Sucursal::all() : Sucursal::where('id', $sucursalUsuario)->get();
 
-        return view('inventario.index', compact('productos', 'sucursales', 'marcasDisponibles'));
+        return view('inventario.index', compact('productos', 'sucursales', 'marcasDisponibles', 'productosNuevosHoy'));
     }
 
-    public function importar() 
-    { 
-        return view('inventario.importar'); 
+    public function importar()
+    {
+        return view('inventario.importar');
     }
 
     public function procesarImportacion(Request $request)
     {
         $request->validate(['archivo_excel' => 'required|mimes:xlsx,xls,csv,txt|max:10240']);
-        
+
         try {
             $empleado = DB::table('usuarios')->where('id', Auth::id())->first();
             $sucursalUsuario = $empleado ? $empleado->sucursal_id : 1;
-            
-            // Asigna a la sucursal del usuario automáticamente
             $sucursal_destino = $request->input('sucursal_id', $sucursalUsuario);
 
             $path = $request->file('archivo_excel')->path();
@@ -149,18 +139,18 @@ class InventarioController extends Controller
                         elseif (str_contains($valStr, 'stock') || str_contains($valStr, 'actual') || str_contains($valStr, 'cantid')) $tempIndices['stock'] = $k;
                     }
                     if (isset($tempIndices['descripcion']) && (isset($tempIndices['mayoreo']) || isset($tempIndices['publico']))) { $indices = $tempIndices; }
-                    continue; 
+                    continue;
                 }
 
                 $descIndex = $indices['descripcion'] ?? -1;
                 $descripcion = ($descIndex !== -1 && isset($valores[$descIndex])) ? $valores[$descIndex] : '';
-                if (empty(trim((string)$descripcion))) continue; 
+                if (empty(trim((string)$descripcion))) continue;
 
                 $catIndex = $indices['categoria'] ?? -1; $mayIndex = $indices['mayoreo'] ?? -1; $pubIndex = $indices['publico'] ?? -1;
                 $categoria = ($catIndex !== -1 && isset($valores[$catIndex])) ? $valores[$catIndex] : 'Llanta';
                 $precioMay = ($mayIndex !== -1 && isset($valores[$mayIndex])) ? $valores[$mayIndex] : 0;
                 $precioPub = ($pubIndex !== -1 && isset($valores[$pubIndex])) ? $valores[$pubIndex] : 0;
-                
+
                 $stockRaw = null;
                 if (isset($indices['stock']) && trim((string)($valores[$indices['stock']] ?? '')) !== '') {
                     $stockRaw = $valores[$indices['stock']];
@@ -189,16 +179,15 @@ class InventarioController extends Controller
                     'costo' => $precioMay, 'precio_mayoreo' => $precioMay, 'precio_publico' => $precioPub, 'estado' => true
                 ]);
 
-                // Asigna el stock a la sucursal del operador que hizo la subida
                 StockSucursal::create(['producto_id' => $producto->id, 'sucursal_id' => $sucursal_destino, 'cantidad' => $stock, 'stock_minimo' => 5]);
                 $productosProcesados++;
             }
             DB::commit();
             if ($productosProcesados === 0) { return back()->with('error', 'No detectamos productos válidos.'); }
             return redirect()->route('inventario.index')->with('success', "¡Éxito! Se importaron $productosProcesados productos en la sucursal correspondiente.");
-        } catch (\Exception $e) { 
-            DB::rollBack(); 
-            return back()->with('error', 'Error: ' . $e->getMessage()); 
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', 'Error: ' . $e->getMessage());
         }
     }
 
@@ -212,7 +201,7 @@ class InventarioController extends Controller
     public function storeEntrada(Request $request)
     {
         $request->validate(['producto_id' => 'required|exists:productos,id', 'cantidad' => 'required|integer|min:1', 'costo_unitario' => 'required|numeric|min:0']);
-        
+
         try {
             DB::beginTransaction();
 
@@ -222,22 +211,183 @@ class InventarioController extends Controller
 
             $producto = Producto::findOrFail($request->producto_id);
             $producto->update(['costo' => $request->costo_unitario]);
-            
-            // La mercancía entra a la bodega del cajero que la registró
+
             $stock = StockSucursal::firstOrCreate(
-                ['producto_id' => $producto->id, 'sucursal_id' => $sucursal_destino], 
+                ['producto_id' => $producto->id, 'sucursal_id' => $sucursal_destino],
                 ['cantidad' => 0, 'stock_minimo' => 5]
             );
             $stock->increment('cantidad', $request->cantidad);
-            
-            $subtotal_compra = $request->cantidad * $request->costo_unitario;
-            CuentaPagar::create(['proveedor_id' => 1, 'concepto' => "Entrada de lote: {$request->cantidad} pzas (Sucursal {$sucursal_destino})", 'pago_ordinario' => $subtotal_compra, 'interes' => 0, 'tipo' => 'cargo', 'fecha_movimiento' => now()]);
-            
+
+            MovimientoInventario::create([
+                'producto_id'    => $producto->id,
+                'sucursal_id'    => $sucursal_destino,
+                'usuario_id'     => Auth::id(),
+                'tipo'           => 'entrada',
+                'cantidad'       => $request->cantidad,
+                'motivo'         => 'compra',
+                'costo_unitario' => $request->costo_unitario,
+                'fecha'          => now(),
+            ]);
+
             DB::commit();
             return redirect()->route('inventario.index')->with('success', "Entrada registrada en tu bodega exitosamente.");
-        } catch (\Exception $e) { 
-            DB::rollBack(); 
-            return redirect()->back()->with('error', 'Error al procesar la entrada.'); 
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()->with('error', 'Error: ' . $e->getMessage());
         }
+    }
+
+    public function storeSalida(Request $request)
+    {
+        $request->validate([
+            'producto_id' => 'required|exists:productos,id',
+            'cantidad'    => 'required|integer|min:1',
+            'motivo'      => 'required|string|max:100',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $empleado = DB::table('usuarios')->where('id', Auth::id())->first();
+            $sucursalUsuario = $empleado ? $empleado->sucursal_id : 1;
+            $sucursal_destino = $request->input('sucursal_id', $sucursalUsuario);
+
+            $stock = StockSucursal::where('producto_id', $request->producto_id)
+                ->where('sucursal_id', $sucursal_destino)
+                ->first();
+
+            if (!$stock || $stock->cantidad < $request->cantidad) {
+                DB::rollBack();
+                $disponible = $stock ? $stock->cantidad : 0;
+                return redirect()->back()->with('error', "Stock insuficiente. Disponible: {$disponible} pzas.");
+            }
+
+            $stock->decrement('cantidad', $request->cantidad);
+
+            MovimientoInventario::create([
+                'producto_id'   => $request->producto_id,
+                'sucursal_id'   => $sucursal_destino,
+                'usuario_id'    => Auth::id(),
+                'tipo'          => 'salida',
+                'cantidad'      => $request->cantidad,
+                'motivo'        => $request->motivo,
+                'observaciones' => $request->observaciones,
+                'fecha'         => now(),
+            ]);
+
+            DB::commit();
+            return redirect()->route('inventario.index')->with('success', "Salida por {$request->motivo} registrada correctamente.");
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()->with('error', 'Error: ' . $e->getMessage());
+        }
+    }
+
+    public function historial(Request $request)
+    {
+        $empleado = DB::table('usuarios')->where('id', Auth::id())->first();
+        $esAdmin = ($empleado && $empleado->rol === 'admin') || Auth::id() === 1;
+        $sucursalUsuario = $empleado ? $empleado->sucursal_id : 1;
+
+        $query = MovimientoInventario::with(['producto', 'sucursal']);
+
+        if (!$esAdmin) {
+            $query->where('sucursal_id', $sucursalUsuario);
+        } elseif ($request->filled('sucursal_id')) {
+            $query->where('sucursal_id', $request->sucursal_id);
+        }
+
+        if ($request->filled('tipo') && in_array($request->tipo, ['entrada', 'salida'])) {
+            $query->where('tipo', $request->tipo);
+        }
+        if ($request->filled('motivo')) {
+            $query->where('motivo', $request->motivo);
+        }
+        if ($request->filled('q')) {
+            $busqueda = $request->q;
+            $query->whereHas('producto', function($q) use ($busqueda) {
+                $q->where('marca', 'like', '%' . $busqueda . '%')
+                  ->orWhere('medida', 'like', '%' . $busqueda . '%')
+                  ->orWhere('descripcion', 'like', '%' . $busqueda . '%');
+            });
+        }
+        if ($request->filled('fecha_desde')) {
+            $query->whereDate('fecha', '>=', $request->fecha_desde);
+        }
+        if ($request->filled('fecha_hasta')) {
+            $query->whereDate('fecha', '<=', $request->fecha_hasta);
+        }
+
+        $totalEntradas = (clone $query)->where('tipo', 'entrada')->sum('cantidad');
+        $totalSalidas = (clone $query)->where('tipo', 'salida')->sum('cantidad');
+        $totalMovimientos = (clone $query)->count();
+
+        $movimientos = $query->orderBy('fecha', 'desc')->paginate(20)->withQueryString();
+        $sucursales = $esAdmin ? Sucursal::all() : Sucursal::where('id', $sucursalUsuario)->get();
+
+        $motivosDisponibles = MovimientoInventario::select('motivo')
+            ->whereNotNull('motivo')->where('motivo', '!=', '')
+            ->distinct()->orderBy('motivo')->pluck('motivo');
+
+        return view('inventario.historial', compact(
+            'movimientos', 'sucursales', 'esAdmin',
+            'totalEntradas', 'totalSalidas', 'totalMovimientos', 'motivosDisponibles'
+        ));
+    }
+
+    private function construirQueryExport(Request $request)
+    {
+        $empleado = DB::table('usuarios')->where('id', Auth::id())->first();
+        $esAdmin = ($empleado && $empleado->rol === 'admin') || Auth::id() === 1;
+        $sucursalUsuario = $empleado ? $empleado->sucursal_id : 1;
+        $sucursalFiltro = $esAdmin ? $request->input('sucursal_id') : $sucursalUsuario;
+
+        $query = Producto::query();
+
+        if ($sucursalFiltro) {
+            $query->withSum(['stock as stock_cantidad' => function($q) use ($sucursalFiltro) {
+                $q->where('sucursal_id', $sucursalFiltro);
+            }], 'cantidad');
+        } else {
+            $query->withSum('stock as stock_cantidad', 'cantidad');
+        }
+
+        if ($request->filled('tipo') && $request->tipo !== 'Todos') {
+            $query->where('tipo', $request->tipo);
+        }
+        if ($request->filled('marca_filtro') && $request->marca_filtro !== 'Todas') {
+            $query->where('marca', $request->marca_filtro);
+        }
+        if ($request->filled('q')) {
+            $query->where(function($q) use ($request) {
+                $q->where('marca', 'like', '%' . $request->q . '%')
+                  ->orWhere('medida', 'like', '%' . $request->q . '%')
+                  ->orWhere('descripcion', 'like', '%' . $request->q . '%');
+            });
+        }
+
+        $query->orderBy('marca')->orderBy('medida');
+        return $query->get();
+    }
+
+    public function exportarExcel(Request $request)
+    {
+        ini_set('memory_limit', '512M');
+        set_time_limit(120);
+        $productos = $this->construirQueryExport($request);
+        $nombre = 'inventario_' . now()->format('Y-m-d_His') . '.xlsx';
+        return Excel::download(new InventarioExport($productos), $nombre);
+    }
+
+    public function exportarPdf(Request $request)
+    {
+        ini_set('memory_limit', '512M');
+        set_time_limit(120);
+        $productos = $this->construirQueryExport($request);
+        $fecha = now()->format('d/m/Y H:i');
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('inventario.pdf', compact('productos', 'fecha'));
+        $pdf->setPaper('a4', 'portrait');
+        $nombre = 'inventario_' . now()->format('Y-m-d_His') . '.pdf';
+        return $pdf->download($nombre);
     }
 }
